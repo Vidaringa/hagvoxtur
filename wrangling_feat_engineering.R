@@ -57,7 +57,8 @@ df_final <- df_final %>%
             production_in_total_manufacturing_sa_index_europe,
             real_wage_index,
             nyskraning_bila_fjoldi,
-            gdp))
+            gdp)) %>% 
+  na.omit()
 
 
 
@@ -73,10 +74,11 @@ df_final %>%
 # Split -------------------------------------------------------------------
 # 2016Q4 - 2019Q2 eru bráðabirgða
 
-hag_split <- initial_time_split(df_final, prop = 0.80) # Með þessu þá næ ég 6 obs í validation set án bráðabirgðatalna   
+hag_split <- initial_time_split(df_final, prop = 0.79) # Með þessu þá næ ég 6 obs í validation set án bráðabirgðatalna   
 hag_train <- training(hag_split)
 
 hag_train <- hag_train %>% select(-quarter)
+hag_test <- testing(hag_split)
 
 # Interactions ------------------------------------------------------------
 # Get annað hvort búið til öll og notað glmnet eða notað random forest til að veita vísbendingu um hugsanlega interaction
@@ -129,3 +131,42 @@ int_rec <-
   step_interact(interactions) %>% 
   step_center(all_predictors()) %>% 
   step_scale(all_predictors())
+
+
+ctrl <- trainControl(
+  method = "timeslice",
+  initialWindow = 40,
+  fixedWindow = FALSE,
+  horizon = 1
+)
+
+
+main_glmn <- 
+  train(main_rec,
+        data = hag_train,
+        method = "glmnet",
+        tuneLength = 10,
+        trControl = ctrl)
+
+
+
+int_glmn <- 
+  train(int_rec,
+        data = hag_train,
+        method = "glmnet",
+        tuneLength = 10,
+        trControl = ctrl)
+
+
+pred_main <- tibble(spa_main = predict(main_glmn, newdata = hag_test[,-1]),
+                    spa_int = predict(int_glmn, newdata = hag_test[,-1]),
+                    raun = hag_test$gdp_gr,
+                    quarter = hag_test$quarter) %>% 
+  gather("breyta", "gildi", 1:3)
+
+ggplot(pred_main,
+       aes(x = quarter,
+           y = gildi,
+           col = breyta)) + 
+  geom_line() +
+  geom_point()
