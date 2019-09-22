@@ -5,6 +5,7 @@ library(lubridate)
 library(caret)
 library(tidymodels)
 library(glmnet)
+library(xts)
 
 # Mánaðartölur ------------------------------------------------------------
 
@@ -61,23 +62,35 @@ df_final <- df_final %>%
   na.omit()
 
 
+# Lags
 
-df_final %>% 
-  gather("key", "value", 2:ncol(df_final)) %>% 
-  ggplot(aes(x = quarter,
-             y = value)) + 
-  geom_line() +
-  facet_wrap(~key,
-             scales = "free_y")
+tafin <- 4
+
+ts_train <- ts(df_final[,-1])
+ts_train <- as.xts(ts_train)
+train_lag <- lag.xts(ts_train, 0:tafin)
+train_lag <- as_tibble(train_lag)
+train_lag$date <- df_final$quarter
+train_lag <- train_lag %>% select(date, everything())
+train_lag <- train_lag %>% na.omit()
+
+
+# df_final %>% 
+#   gather("key", "value", 2:ncol(df_final)) %>% 
+#   ggplot(aes(x = quarter,
+#              y = value)) + 
+#   geom_line() +
+#   facet_wrap(~key,
+#              scales = "free_y")
 
 
 # Split -------------------------------------------------------------------
 # 2016Q4 - 2019Q2 eru bráðabirgða
 
-hag_split <- initial_time_split(df_final, prop = 0.79) # Með þessu þá næ ég 6 obs í validation set án bráðabirgðatalna   
+hag_split <- initial_time_split(train_lag, prop = 0.77) # Með þessu þá næ ég 6 obs í validation set án bráðabirgðatalna   
 hag_train <- training(hag_split)
 
-hag_train <- hag_train %>% select(-quarter)
+hag_train <- hag_train %>% select(-date)
 hag_test <- testing(hag_split)
 
 # Interactions ------------------------------------------------------------
@@ -93,55 +106,55 @@ main_rec <-
 
 
 
-int_vars <- 
-  main_rec %>% 
-  pluck("var_info") %>% 
-  filter(role == "predictor") %>% 
-  pull(variable)
-
-
-interactions <- t(combn(as.character(int_vars), 2))
-colnames(interactions) <- c("var1", "var2")
-
-
-interactions <- 
-  interactions %>% 
-  as_tibble() %>% 
-  mutate(
-    term = 
-      paste0(
-        "starts_with('",
-        var1,
-        "'):starts_with('",
-        var2,
-        "')"
-      )
-  ) %>% 
-  pull(term) %>% 
-  paste(collapse = "+")
-
-interactions <- paste("~", interactions)
-interactions <- as.formula(interactions)
-
-
-int_rec <- 
-  recipe(
-    gdp_gr ~ .,
-    data = hag_train) %>% 
-  step_interact(interactions) %>% 
-  step_center(all_predictors()) %>% 
-  step_scale(all_predictors())
+# int_vars <- 
+#   main_rec %>% 
+#   pluck("var_info") %>% 
+#   filter(role == "predictor") %>% 
+#   pull(variable)
+# 
+# 
+# interactions <- t(combn(as.character(int_vars), 2))
+# colnames(interactions) <- c("var1", "var2")
+# 
+# 
+# interactions <- 
+#   interactions %>% 
+#   as_tibble() %>% 
+#   mutate(
+#     term = 
+#       paste0(
+#         "starts_with('",
+#         var1,
+#         "'):starts_with('",
+#         var2,
+#         "')"
+#       )
+#   ) %>% 
+#   pull(term) %>% 
+#   paste(collapse = "+")
+# 
+# interactions <- paste("~", interactions)
+# interactions <- as.formula(interactions)
+# 
+# 
+# int_rec <- 
+#   recipe(
+#     gdp_gr ~ .,
+#     data = hag_train) %>% 
+#   step_interact(interactions) %>% 
+#   step_center(all_predictors()) %>% 
+#   step_scale(all_predictors())
 
 
 ctrl <- trainControl(
   method = "timeslice",
-  initialWindow = 40,
+  initialWindow = 30,
   fixedWindow = FALSE,
-  horizon = 1
+  horizon = 4
 )
 
 
-main_glmn <- 
+main_glmn_h4 <- 
   train(main_rec,
         data = hag_train,
         method = "glmnet",
@@ -149,20 +162,38 @@ main_glmn <-
         trControl = ctrl)
 
 
-
-int_glmn <- 
-  train(int_rec,
-        data = hag_train,
-        method = "glmnet",
-        tuneLength = 10,
-        trControl = ctrl)
+rf_model <- train(main_rec,
+                  data = hag_train,
+                  method = "rf",
+                  tuneLength = 10,
+                  trControl = ctrl)
 
 
-pred_main <- tibble(spa_main = predict(main_glmn, newdata = hag_test[,-1]),
-                    spa_int = predict(int_glmn, newdata = hag_test[,-1]),
+grid <- expand.grid(committees = seq(1, 100),
+                    neighbors = seq(0, 9))
+
+
+cubist_model <- train(main_rec,
+                      data = hag_train,
+                      method = "cubist",
+                      tuneGrid = grid)
+
+
+# int_glmn <- 
+#   train(int_rec,
+#         data = hag_train,
+#         method = "glmnet",
+#         tuneLength = 10,
+#         trControl = ctrl)
+
+
+pred_main <- tibble(rf_spa = predict(rf_model, newdata = hag_test[,-1]),
+                    spa_main_4h = predict(main_glmn_h4, newdata = hag_test[,-1]),
+                    cubist = predict(cubist_model, newdata = hag_test[,-1]),
+                    # spa_int = predict(int_glmn, newdata = hag_test[,-1]),
                     raun = hag_test$gdp_gr,
-                    quarter = hag_test$quarter) %>% 
-  gather("breyta", "gildi", 1:3)
+                    quarter = hag_test$date) %>% 
+  gather("breyta", "gildi", 1:4)
 
 ggplot(pred_main,
        aes(x = quarter,
@@ -170,3 +201,6 @@ ggplot(pred_main,
            col = breyta)) + 
   geom_line() +
   geom_point()
+
+
+
