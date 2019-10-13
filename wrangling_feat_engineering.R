@@ -97,6 +97,8 @@ hag_test <- testing(hag_split)
 # Get annað hvort búið til öll og notað glmnet eða notað random forest til að veita vísbendingu um hugsanlega interaction
 
 
+
+
 main_rec <- 
   recipe(
     gdp_gr ~ .,
@@ -106,10 +108,10 @@ main_rec <-
 
 
 
-# int_vars <- 
-#   main_rec %>% 
-#   pluck("var_info") %>% 
-#   filter(role == "predictor") %>% 
+# int_vars <-
+#   main_rec %>%
+#   pluck("var_info") %>%
+#   filter(role == "predictor") %>%
 #   pull(variable)
 # 
 # 
@@ -117,11 +119,11 @@ main_rec <-
 # colnames(interactions) <- c("var1", "var2")
 # 
 # 
-# interactions <- 
-#   interactions %>% 
-#   as_tibble() %>% 
+# interactions <-
+#   interactions %>%
+#   as_tibble() %>%
 #   mutate(
-#     term = 
+#     term =
 #       paste0(
 #         "starts_with('",
 #         var1,
@@ -129,21 +131,24 @@ main_rec <-
 #         var2,
 #         "')"
 #       )
-#   ) %>% 
-#   pull(term) %>% 
+#   ) %>%
+#   pull(term) %>%
 #   paste(collapse = "+")
 # 
 # interactions <- paste("~", interactions)
 # interactions <- as.formula(interactions)
 # 
 # 
-# int_rec <- 
+# int_rec <-
 #   recipe(
 #     gdp_gr ~ .,
-#     data = hag_train) %>% 
-#   step_interact(interactions) %>% 
-#   step_center(all_predictors()) %>% 
+#     data = hag_train) %>%
+#   step_interact(interactions) %>%
+#   step_center(all_predictors()) %>%
 #   step_scale(all_predictors())
+
+
+# -------------------------------------------------------------------------
 
 
 ctrl <- trainControl(
@@ -161,12 +166,32 @@ main_glmn_h4 <-
         tuneLength = 10,
         trControl = ctrl)
 
+# Fæ error: Error: C stack usage  15924288 is too close to the limit
+# int_glmn_h4 <- 
+#   train(int_rec,
+#         data = hag_train,
+#         method = "enet",
+#         tuneLength = 10,
+#         trControl = ctrl)
+# 
 
 rf_model <- train(main_rec,
                   data = hag_train,
                   method = "rf",
-                  tuneLength = 10,
-                  trControl = ctrl)
+                  trControl = ctrl,
+                  importance = TRUE)
+
+
+y <- hag_train$gdp_gr
+x <- hag_train %>% select(-gdp_gr)
+
+rf_forest <- randomForest(y = y,
+                          x = x,
+                          ntree = 500,
+                          importance = TRUE)
+
+
+# -------------------------------------------------------------------------
 
 
 grid <- expand.grid(committees = seq(1, 100),
@@ -179,12 +204,7 @@ cubist_model <- train(main_rec,
                       tuneGrid = grid)
 
 
-# int_glmn <- 
-#   train(int_rec,
-#         data = hag_train,
-#         method = "glmnet",
-#         tuneLength = 10,
-#         trControl = ctrl)
+
 
 
 pred_main <- tibble(rf_spa = predict(rf_model, newdata = hag_test[,-1]),
