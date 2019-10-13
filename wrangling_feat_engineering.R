@@ -6,6 +6,8 @@ library(caret)
 library(tidymodels)
 library(glmnet)
 library(xts)
+library(randomForest)
+
 
 # Mánaðartölur ------------------------------------------------------------
 
@@ -97,12 +99,32 @@ hag_test <- testing(hag_split)
 # Get annað hvort búið til öll og notað glmnet eða notað random forest til að veita vísbendingu um hugsanlega interaction
 
 
+y_rf <- hag_train$gdp_gr
+x_rf <- hag_train %>% select(-gdp_gr)
+
+rf_forest <- randomForest(y = y_rf,
+                          x = x_rf,
+                          ntree = 500,
+                          importance = TRUE)
+
+
+
+# -------------------------------------------------------------------------
 
 
 main_rec <- 
   recipe(
     gdp_gr ~ .,
     data = hag_train) %>% 
+  step_interact(terms = ~ real_wage_gr.1:real_wage_gr.2) %>% 
+  step_interact(terms = ~ real_wage_gr.1:real_ex) %>% 
+  step_interact(terms = ~ real_wage_gr.1:prod_man_eur_gr.1) %>% 
+  step_interact(terms = ~ real_wage_gr.1:gdp_gr.1) %>% 
+  step_interact(terms = ~ real_wage_gr.2:real_ex) %>% 
+  step_interact(terms = ~ real_wage_gr.2:prod_man_eur_gr.1) %>% 
+  step_interact(terms = ~ real_wage_gr.2:gdp_gr.1) %>% 
+  step_interact(terms = ~ real_ex:prod_man_eur_gr.1) %>% 
+  step_interact(terms = ~ real_ex:gdp_gr.1) %>% 
   step_center(all_predictors()) %>% 
   step_scale(all_predictors())
 
@@ -162,7 +184,7 @@ ctrl <- trainControl(
 main_glmn_h4 <- 
   train(main_rec,
         data = hag_train,
-        method = "glmnet",
+        method = "enet",
         tuneLength = 10,
         trControl = ctrl)
 
@@ -182,13 +204,6 @@ rf_model <- train(main_rec,
                   importance = TRUE)
 
 
-y <- hag_train$gdp_gr
-x <- hag_train %>% select(-gdp_gr)
-
-rf_forest <- randomForest(y = y,
-                          x = x,
-                          ntree = 500,
-                          importance = TRUE)
 
 
 # -------------------------------------------------------------------------
@@ -207,13 +222,13 @@ cubist_model <- train(main_rec,
 
 
 
-pred_main <- tibble(rf_spa = predict(rf_model, newdata = hag_test[,-1]),
-                    spa_main_4h = predict(main_glmn_h4, newdata = hag_test[,-1]),
-                    cubist = predict(cubist_model, newdata = hag_test[,-1]),
+pred_main <- tibble(enet = predict(main_glmn_h4, newdata = hag_test[,-1]),
+                    # rf_spa = predict(rf_model, newdata = hag_test[,-1]),
+                    # cubist = predict(cubist_model, newdata = hag_test[,-1]),
                     # spa_int = predict(int_glmn, newdata = hag_test[,-1]),
                     raun = hag_test$gdp_gr,
                     quarter = hag_test$date) %>% 
-  gather("breyta", "gildi", 1:4)
+  gather("breyta", "gildi", 1:2)
 
 ggplot(pred_main,
        aes(x = quarter,
