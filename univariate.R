@@ -41,3 +41,38 @@ ggplot(df_spar,
            y = value,
            col = key)) +
   geom_line()
+
+
+
+
+# Out of sample -----------------------------------------------------------
+
+gdp <- df %>% select(date, GDP)
+
+ggplot(df,
+       aes(x = date,
+           y = log(GDP))) + 
+  geom_line()
+
+gdp_ts <- ts(gdp$GDP, start = 1970, frequency = 4)
+
+
+arima_lv <- auto.arima(gdp_ts, approximation = FALSE, stepwise = FALSE)
+arima_lv_fc <- forecast(arima_lv, h = 8)
+arima_lv_fc %>% autoplot()
+
+arima_lv_fc
+
+
+# -------------------------------------------------------------------------
+
+
+gdp_gr <- gdp %>% 
+  mutate(gdp_gr = GDP/lag(GDP, 4) - 1) %>% 
+  na.omit()
+
+gdp_gr_ts <- ts(gdp_gr$gdp_gr, start = 1971, frequency = 4)
+
+arima_gr <- auto.arima(gdp_gr_ts, approximation = FALSE, stepwise = FALSE)
+arima_gr_fc <- forecast(arima_gr, h = 8)
+arima_gr_fc %>% autoplot()
